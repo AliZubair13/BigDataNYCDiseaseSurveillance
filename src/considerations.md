@@ -3,7 +3,7 @@
 ## Scripts
 
 1. **press_release_scraper.py** - Scrapes NYC DOHMH press releases
-2. **respiratory_data_scraper.py** - Gets COVID/Flu/RSV data from NYC GitHub
+2. **nyc_covid_rsv_flu_official_scraper.py** - Gets COVID/Flu/RSV data from NYC GitHub
 
 ## Key Design Decisions
 
