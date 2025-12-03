@@ -64,18 +64,18 @@ class BlueskyScraper:
         self.logger = logging.getLogger(__name__)
 
         # Setup Kafka producer if enabled
-        self.producer = None
-        if enable_kafka and kafka_bootstrap_servers:
-            try:
-                self.producer = KafkaProducer(
-                    bootstrap_servers=kafka_bootstrap_servers,
-                    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                    key_serializer=lambda k: k.encode('utf-8') if k else None
-                )
-                self.logger.info(f"Kafka producer connected to {kafka_bootstrap_servers}")
-            except Exception as e:
-                self.logger.error(f"Failed to connect to Kafka: {e}")
-                self.producer = None
+        # self.producer = None
+        # if enable_kafka and kafka_bootstrap_servers:
+        #     try:
+        #         self.producer = KafkaProducer(
+        #             bootstrap_servers=kafka_bootstrap_servers,
+        #             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        #             key_serializer=lambda k: k.encode('utf-8') if k else None
+        #         )
+        #         self.logger.info(f"Kafka producer connected to {kafka_bootstrap_servers}")
+        #     except Exception as e:
+        #         self.logger.error(f"Failed to connect to Kafka: {e}")
+        #         self.producer = None
 
         # Cache for seen posts (deduplication)
         self.seen_posts = set()

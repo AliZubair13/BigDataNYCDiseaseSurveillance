@@ -91,7 +91,7 @@ def main():
             # Single search mode
             print(f"Searching for: '{args.query}' (limit: {args.limit})")
             posts = scraper.search_posts(query=args.query, limit=args.limit)
-            print(f"\n✅ Collected {len(posts)} relevant posts")
+            print(f"\nCollected {len(posts)} relevant posts")
 
             if posts:
                 print("\nSample post:")
@@ -112,9 +112,9 @@ def main():
             )
 
     except KeyboardInterrupt:
-        print("\n\n⚠️  Scraper stopped by user")
+        print("\n\nScraper stopped by user")
     except Exception as e:
-        print(f"\n❌ Error: {e}", file=sys.stderr)
+        print(f"\nError: {e}", file=sys.stderr)
         return 1
     finally:
         scraper.close()
