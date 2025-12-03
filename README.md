@@ -32,6 +32,12 @@ NYC Disease Outbreak Surveillance provides hyperlocal disease monitoring for New
 
 ### Layer 1: Data Ingestion (Scrapers)
 
+# Ticket 1.1: Reddit Scraper
+
+## Overview
+This module implements a scraper to scrape health-related posts from r/nyc and r/AskNYC
+
+
 #### Bluesky Social Media Scraper (Ticket 1.2)
 
 Scrapes Bluesky for health-related posts mentioning NYC.
