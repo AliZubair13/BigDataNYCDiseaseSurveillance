@@ -96,3 +96,19 @@ The system consists of 5 layers:
 - [x] Ticket 1.3: Local News RSS Feeds (Devak)
 - [x] Ticket 1.4: NYC Open Data & 311 API (Devak) **COMPLETE**
 - [x] Ticket 1.5: Health Department PDF Scraping (Reetahan)
+
+
+# Ticket 4.1: S3 Data Archival Pipeline
+
+## Overview
+This module serves as the "Cold Path" for our data pipeline. While real-time data flows into Kafka (Layer 2), this script ensures raw reproducibility by archiving all scraped data to AWS S3.
+
+## Usage
+1. **Configure Credentials:**
+   Create a `.env` file in the root directory (see `.env.example`) and add your AWS keys:
+   ```ini
+   AWS_ACCESS_KEY_ID=your_key
+   AWS_SECRET_ACCESS_KEY=your_secret
+   AWS_BUCKET_NAME=your_bucket_name
+2. **Run the Uploader:**
+   python s3_uploader.py

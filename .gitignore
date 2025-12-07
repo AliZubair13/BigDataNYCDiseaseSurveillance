@@ -216,3 +216,6 @@ __marimo__/
 .DS_Store
 Thumbs.db
 .jsonl
+
+# Data Directories
+data_processed/
