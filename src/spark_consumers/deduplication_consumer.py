@@ -439,7 +439,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Spark Streaming Deduplication Consumer')
     parser.add_argument('--kafka-servers', default='localhost:9092', help='Kafka bootstrap servers')
-    parser.add_argument('--topics', default='reddit,bluesky,rss,nyc_311,nyc_press,nyc_covid', help='Comma-separated Kafka topics')
+    parser.add_argument('--topics', default='reddit,bluesky,rss.health,nyc_311.health,nyc_press.health,nyc_covid.health', help='Comma-separated Kafka topics')
     parser.add_argument('--output-dir', default='data/deduplicated', help='Output directory')
     parser.add_argument('--checkpoint-dir', default='checkpoints/deduplication', help='Checkpoint directory')
     parser.add_argument('--similarity-threshold', type=float, default=0.85, help='Semantic similarity threshold (0-1)')
