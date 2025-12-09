@@ -55,6 +55,47 @@ def run_complete_pipeline(local_mode=False):
         print("\nSTEP 2: Publishing ALL JSON files to Kafka...")
         kafka_results = kafka_publisher.publish_to_kafka()
 
+        # STEP 3: Run Spark Consumers (optional - can be run separately)
+        print("\n" + "#"*60)
+        print("# STEP 3: SPARK STREAMING CONSUMERS")
+        print("#"*60)
+        print("\nNote: Consumers run indefinitely. Press Ctrl+C to stop.")
+        print("You can also run them separately:")
+        print("  python run_deduplication_consumer.py")
+        print("  python run_location_consumer.py")
+        
+        run_consumers = input("\nRun Spark consumers now? (y/n): ").lower().strip() == 'y'
+        
+        if run_consumers:
+            print("\nStarting Spark consumers in background...")
+            print("(Press Ctrl+C to stop all consumers)\n")
+            
+            # Run consumers in separate processes
+            import multiprocessing
+            
+            def run_dedup():
+                subprocess.run([sys.executable, "run_deduplication_consumer.py"])
+            
+            def run_location():
+                subprocess.run([sys.executable, "run_location_consumer.py"])
+            
+            dedup_process = multiprocessing.Process(target=run_dedup)
+            location_process = multiprocessing.Process(target=run_location)
+            
+            dedup_process.start()
+            location_process.start()
+            
+            try:
+                dedup_process.join()
+                location_process.join()
+            except KeyboardInterrupt:
+                print("\n\nStopping consumers...")
+                dedup_process.terminate()
+                location_process.terminate()
+                dedup_process.join()
+                location_process.join()
+                print("Consumers stopped.")
+
         # Summary
         print("\n" + "#"*60)
         print("# PIPELINE COMPLETE ✓")
