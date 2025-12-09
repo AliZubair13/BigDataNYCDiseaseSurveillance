@@ -70,30 +70,31 @@ def run_complete_pipeline(local_mode=False):
             print("\nStarting Spark consumers in background...")
             print("(Press Ctrl+C to stop all consumers)\n")
             
-            # Run consumers in separate processes
-            import multiprocessing
+            # Run consumers as subprocesses
+            dedup_process = subprocess.Popen(
+                [sys.executable, "run_deduplication_consumer.py"],
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
             
-            def run_dedup():
-                subprocess.run([sys.executable, "run_deduplication_consumer.py"])
+            location_process = subprocess.Popen(
+                [sys.executable, "run_location_consumer.py"],
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
             
-            def run_location():
-                subprocess.run([sys.executable, "run_location_consumer.py"])
-            
-            dedup_process = multiprocessing.Process(target=run_dedup)
-            location_process = multiprocessing.Process(target=run_location)
-            
-            dedup_process.start()
-            location_process.start()
+            print(f"✓ Deduplication consumer started (PID: {dedup_process.pid})")
+            print(f"✓ Location consumer started (PID: {location_process.pid})")
+            print("\nPress Ctrl+C to stop all consumers...\n")
             
             try:
-                dedup_process.join()
-                location_process.join()
+                # Wait for both processes
+                dedup_process.wait()
+                location_process.wait()
             except KeyboardInterrupt:
                 print("\n\nStopping consumers...")
                 dedup_process.terminate()
                 location_process.terminate()
-                dedup_process.join()
-                location_process.join()
+                dedup_process.wait()
+                location_process.wait()
                 print("Consumers stopped.")
 
         # Summary
