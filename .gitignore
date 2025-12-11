@@ -217,4 +217,6 @@ __marimo__/
 Thumbs.db
 .jsonl
 
+# Data Directories
+data_processed/
 .crc
