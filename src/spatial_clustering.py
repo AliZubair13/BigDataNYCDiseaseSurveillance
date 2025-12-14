@@ -150,7 +150,7 @@ class SpatialClusteringAnalyzer:
                 id,
                 timestamp,
                 source,
-                text,
+                text_content,
                 diseases,
                 symptoms,
                 severity,
@@ -158,7 +158,9 @@ class SpatialClusteringAnalyzer:
                 borough,
                 neighborhood,
                 location_source,
-                extracted_locations
+                extracted_locations,
+                latitude,
+                longitude
             FROM disease_events
             WHERE 1=1
         """
@@ -219,19 +221,31 @@ class SpatialClusteringAnalyzer:
         # Convert to Pandas for scikit-learn
         pdf = df.toPandas()
 
-        # Map boroughs to coordinates (approximate)
-        pdf['lat'] = pdf['borough'].map(lambda b: self.borough_coords.get(b, (None, None))[0] if b else None)
-        pdf['lon'] = pdf['borough'].map(lambda b: self.borough_coords.get(b, (None, None))[1] if b else None)
-
-        # Add jitter for neighborhood-level variation (if neighborhood exists)
-        # This prevents all records in same borough from having identical coordinates
-        np.random.seed(42)
+        # Use actual latitude/longitude if available, otherwise map from borough
         pdf['lat'] = pdf.apply(
-            lambda row: row['lat'] + np.random.uniform(-0.02, 0.02) if pd.notna(row['lat']) and pd.notna(row['neighborhood']) else row['lat'],
+            lambda row: row['latitude'] if pd.notna(row.get('latitude')) 
+            else (self.borough_coords.get(row['borough'], (None, None))[0] if row.get('borough') else None),
             axis=1
         )
         pdf['lon'] = pdf.apply(
-            lambda row: row['lon'] + np.random.uniform(-0.02, 0.02) if pd.notna(row['lon']) and pd.notna(row['neighborhood']) else row['lon'],
+            lambda row: row['longitude'] if pd.notna(row.get('longitude'))
+            else (self.borough_coords.get(row['borough'], (None, None))[1] if row.get('borough') else None),
+            axis=1
+        )
+
+        # Add jitter for neighborhood-level variation (only if no actual lat/lon)
+        # This prevents all records in same borough from having identical coordinates
+        np.random.seed(42)
+        pdf['lat'] = pdf.apply(
+            lambda row: row['lat'] + np.random.uniform(-0.02, 0.02) 
+            if pd.notna(row['lat']) and pd.isna(row.get('latitude')) and pd.notna(row['neighborhood']) 
+            else row['lat'],
+            axis=1
+        )
+        pdf['lon'] = pdf.apply(
+            lambda row: row['lon'] + np.random.uniform(-0.02, 0.02) 
+            if pd.notna(row['lon']) and pd.isna(row.get('longitude')) and pd.notna(row['neighborhood']) 
+            else row['lon'],
             axis=1
         )
 
