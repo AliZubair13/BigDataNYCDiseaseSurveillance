@@ -5,9 +5,10 @@ Real-time monitoring of disease events from TimescaleDB and analysis outputs
 Loads data from:
 - TimescaleDB: Raw disease events
 - Spatial Clustering: Geographic cluster analysis (data/spatial_clusters/)
-- Outbreak Forecasting: Predictions and risk alerts (forecast/)
+- Anomaly Detection: Statistical anomaly alerts (data/anomalies.csv)
+- Outbreak Forecasting: Predictions and risk alerts (data/forecast/outbreak_forecast.csv)
 
-Run with: streamlit run src/dashboard/app.py
+Run with: streamlit run src/dashboard/app_upgraded.py
 """
 
 import streamlit as st
@@ -24,7 +25,7 @@ import os
 # Page configuration
 st.set_page_config(
     page_title="NYC Disease Surveillance",
-    page_icon="🏥",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -221,7 +222,7 @@ def load_latest_spatial_clusters():
 def load_latest_forecast():
     """Load latest outbreak forecast"""
     try:
-        forecast_file = "forecast/outbreak_forecast.csv"
+        forecast_file = "data/forecast/outbreak_forecast.csv"
 
         if not os.path.exists(forecast_file):
             return None
@@ -232,6 +233,32 @@ def load_latest_forecast():
         return forecast_df
     except Exception as e:
         st.warning(f"Could not load forecast data: {e}")
+        return None
+
+@st.cache_data(ttl=60)
+def load_anomaly_detection():
+    """Load anomaly detection results"""
+    try:
+        anomaly_file = "data/anomalies.csv"
+
+        if not os.path.exists(anomaly_file):
+            return None
+
+        anomaly_df = pd.read_csv(anomaly_file)
+        
+        # Rename columns to match expected format
+        if 'day' in anomaly_df.columns:
+            anomaly_df['date'] = pd.to_datetime(anomaly_df['day'])
+        if 'cnt' in anomaly_df.columns:
+            anomaly_df['case_count'] = anomaly_df['cnt']
+        
+        # Mark anomalies (z_score > 1.5)
+        if 'z_score' in anomaly_df.columns:
+            anomaly_df['is_anomaly'] = anomaly_df['z_score'].abs() > 1.5
+
+        return anomaly_df
+    except Exception as e:
+        st.warning(f"Could not load anomaly data: {e}")
         return None
 
 @st.cache_data(ttl=60)
@@ -939,16 +966,301 @@ def render_comparison_section():
             st.info("Risk assessment requires forecast data")
 
 # ============================================================================
+# RENDER FUNCTIONS: Spatial Clustering
+# ============================================================================
+
+def render_spatial_clustering_section():
+    """Render spatial clustering analysis tab"""
+    st.header("🗺️ Spatial Clustering Analysis")
+    st.markdown("DBSCAN-based geographic clustering of disease events")
+
+    cluster_data = load_latest_spatial_clusters()
+
+    if cluster_data is None:
+        st.info("No spatial clustering data available. Run: `python src/spatial_clustering.py`")
+        return
+
+    summary = get_cluster_summary(cluster_data)
+
+    # Metadata row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Clusters", summary['num_clusters'])
+    with col2:
+        st.metric("Records Analyzed", f"{summary['total_records']:,}")
+    with col3:
+        st.metric("Algorithm", summary['algorithm'])
+    with col4:
+        st.metric("Analysis Time", summary['timestamp'][:10])
+
+    st.markdown("---")
+
+    # Cluster details
+    if summary['cluster_details']:
+        st.subheader("Cluster Breakdown")
+
+        # Sort by size
+        clusters_sorted = sorted(summary['cluster_details'], key=lambda x: x['size'], reverse=True)
+
+        for cluster in clusters_sorted[:10]:  # Top 10 clusters
+            with st.expander(f"Cluster {cluster['cluster_id']} - {cluster['size']} events", expanded=False):
+                c1, c2, c3 = st.columns(3)
+
+                with c1:
+                    st.markdown(f"**Size:** {cluster['size']}")
+                    st.markdown(f"**Top Disease:** {cluster['top_disease']}")
+
+                with c2:
+                    st.markdown("**Boroughs:**")
+                    for borough, count in cluster['boroughs'].items():
+                        st.markdown(f"- {borough}: {count}")
+
+                with c3:
+                    if cluster['centroid_lat'] and cluster['centroid_lon']:
+                        st.markdown(f"**Centroid:**")
+                        st.markdown(f"Lat: {cluster['centroid_lat']:.4f}")
+                        st.markdown(f"Lon: {cluster['centroid_lon']:.4f}")
+
+        # Cluster size distribution
+        cluster_sizes = [c['size'] for c in clusters_sorted]
+        fig = px.bar(
+            x=[f"Cluster {c['cluster_id']}" for c in clusters_sorted[:15]],
+            y=cluster_sizes[:15],
+            title="Top 15 Clusters by Size",
+            labels={'x': 'Cluster ID', 'y': 'Number of Events'}
+        )
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# RENDER FUNCTIONS: Anomaly Detection
+# ============================================================================
+
+def render_anomaly_detection_section():
+    """Render anomaly detection analysis tab"""
+    st.header("⚠️ Anomaly Detection")
+    st.markdown("Statistical anomaly detection using expanding window z-scores")
+
+    anomaly_df = load_anomaly_detection()
+
+    if anomaly_df is None:
+        st.info("No anomaly data available. Run: `python src/anomaly_detection.py`")
+        return
+
+    # Filter for significant anomalies
+    significant_anomalies = anomaly_df[anomaly_df['is_anomaly'] == True]
+
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Records", len(anomaly_df))
+    with col2:
+        st.metric("Anomalies Detected", len(significant_anomalies))
+    with col3:
+        pct = (len(significant_anomalies) / len(anomaly_df) * 100) if len(anomaly_df) > 0 else 0
+        st.metric("Anomaly Rate", f"{pct:.1f}%")
+    with col4:
+        if 'z_score' in anomaly_df.columns:
+            max_z = anomaly_df['z_score'].abs().max()
+            st.metric("Max Z-Score", f"{max_z:.2f}")
+
+    st.markdown("---")
+
+    # Recent anomalies table
+    if not significant_anomalies.empty:
+        st.subheader("Recent Anomalies")
+
+        # Sort by date descending
+        recent = significant_anomalies.sort_values('date', ascending=False).head(20)
+
+        display_cols = ['date', 'borough', 'disease', 'case_count', 'z_score']
+        display_cols = [col for col in display_cols if col in recent.columns]
+
+        st.dataframe(
+            recent[display_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Time series with anomalies
+        st.subheader("Case Trends with Anomalies")
+
+        # Borough filter
+        available_boroughs = anomaly_df['borough'].unique() if 'borough' in anomaly_df.columns else []
+        selected_borough = st.selectbox("Select Borough", options=['All'] + list(available_boroughs))
+
+        plot_df = anomaly_df if selected_borough == 'All' else anomaly_df[anomaly_df['borough'] == selected_borough]
+
+        if 'date' in plot_df.columns and 'case_count' in plot_df.columns:
+            fig = go.Figure()
+
+            # Normal cases
+            normal = plot_df[plot_df['is_anomaly'] == False]
+            fig.add_trace(go.Scatter(
+                x=normal['date'],
+                y=normal['case_count'],
+                mode='lines+markers',
+                name='Normal',
+                line=dict(color='#2ca02c', width=2),
+                marker=dict(size=6)
+            ))
+
+            # Anomalies
+            anomalies = plot_df[plot_df['is_anomaly'] == True]
+            fig.add_trace(go.Scatter(
+                x=anomalies['date'],
+                y=anomalies['case_count'],
+                mode='markers',
+                name='Anomaly',
+                marker=dict(color='#d62728', size=12, symbol='x')
+            ))
+
+            fig.update_layout(
+                title=f"Disease Case Trends - {selected_borough}",
+                xaxis_title='Date',
+                yaxis_title='Case Count',
+                hovermode='x unified',
+                height=500
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# RENDER FUNCTIONS: Outbreak Forecasting
+# ============================================================================
+
+def render_outbreak_forecasting_section():
+    """Render outbreak forecasting analysis tab"""
+    st.header("📈 Outbreak Forecasting")
+    st.markdown("Prophet-based time-series predictions for disease outbreaks")
+
+    forecast_df = load_latest_forecast()
+
+    if forecast_df is None:
+        st.info("No forecast data available. Run: `python src/disease_outbreak_forecaster.py`")
+        return
+
+    summary = get_forecast_summary(forecast_df)
+
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Predictions", summary['total_predictions'])
+    with col2:
+        st.metric("High Risk Alerts", summary['high_risk_count'])
+    with col3:
+        st.metric("Diseases", summary['diseases_forecasted'])
+    with col4:
+        st.metric("Forecast Horizon", f"{summary['forecast_horizon']} days")
+
+    st.markdown("---")
+
+    # High risk alerts
+    if summary['high_risk_alerts']:
+        st.subheader("🚨 High Risk Alerts")
+
+        for alert in summary['high_risk_alerts'][:10]:
+            with st.expander(f"{alert['neighborhood']} - {alert['disease']} ({alert['risk_level']})", expanded=False):
+                c1, c2, c3 = st.columns(3)
+
+                with c1:
+                    st.metric("Predicted Cases", f"{alert['predicted_cases']:.1f}")
+                with c2:
+                    st.metric("Risk Level", alert['risk_level'])
+                with c3:
+                    st.metric("Forecast Date", str(alert['forecast_date'])[:10])
+
+    st.markdown("---")
+
+    # Forecast visualization
+    st.subheader("Forecast Predictions")
+
+    # Filters
+    col1, col2 = st.columns(2)
+    with col1:
+        available_diseases = forecast_df['disease'].unique()
+        selected_disease = st.selectbox("Select Disease", options=available_diseases)
+
+    with col2:
+        available_neighborhoods = forecast_df['neighborhood'].unique()
+        selected_neighborhood = st.selectbox("Select Neighborhood", options=available_neighborhoods)
+
+    # Filter data
+    plot_df = forecast_df[
+        (forecast_df['disease'] == selected_disease) &
+        (forecast_df['neighborhood'] == selected_neighborhood)
+    ]
+
+    if not plot_df.empty:
+        fig = go.Figure()
+
+        # Predicted cases
+        fig.add_trace(go.Scatter(
+            x=plot_df['forecast_date'],
+            y=plot_df['predicted_cases'],
+            mode='lines+markers',
+            name='Predicted Cases',
+            line=dict(color='#1f77b4', width=3)
+        ))
+
+        # Confidence intervals if available
+        if 'lower_bound' in plot_df.columns and 'upper_bound' in plot_df.columns:
+            fig.add_trace(go.Scatter(
+                x=plot_df['forecast_date'],
+                y=plot_df['upper_bound'],
+                mode='lines',
+                name='Upper Bound',
+                line=dict(width=0),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter(
+                x=plot_df['forecast_date'],
+                y=plot_df['lower_bound'],
+                mode='lines',
+                name='Lower Bound',
+                line=dict(width=0),
+                fill='tonexty',
+                fillcolor='rgba(31, 119, 180, 0.2)',
+                showlegend=True
+            ))
+
+        fig.update_layout(
+            title=f"{selected_disease.title()} Forecast - {selected_neighborhood}",
+            xaxis_title='Date',
+            yaxis_title='Predicted Cases',
+            hovermode='x unified',
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Risk level distribution
+        risk_counts = plot_df['risk_level'].value_counts()
+        fig2 = px.bar(
+            x=risk_counts.index,
+            y=risk_counts.values,
+            title="Risk Level Distribution",
+            labels={'x': 'Risk Level', 'y': 'Count'},
+            color=risk_counts.index,
+            color_discrete_map={
+                'CRITICAL': '#d62728',
+                'HIGH': '#ff7f0e',
+                'MODERATE': '#ffdd57',
+                'LOW': '#2ca02c'
+            }
+        )
+        fig2.update_layout(showlegend=False, height=300)
+        st.plotly_chart(fig2, use_container_width=True)
+
+# ============================================================================
 # MAIN DASHBOARD
 # ============================================================================
 
 def main():
-    st.title("NYC Disease Surveillance Dashboard")
+    st.title("🏙️ NYC Disease Surveillance Dashboard")
     st.markdown("Real-time monitoring of disease events across New York City")
 
     # Sidebar
-    st.sidebar.header("Dashboard Controls")
-    auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=True)
+    st.sidebar.header("⚙️ Dashboard Controls")
+    auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=False)
     time_window = st.sidebar.selectbox(
         "Time Window",
         options=[24, 48, 168, 720],
@@ -958,22 +1270,45 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"**Last updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+    # Tab navigation
+    tabs = st.tabs([
+        "📊 Overview",
+        "🗺️ Spatial Clustering",
+        "⚠️ Anomaly Detection",
+        "📈 Outbreak Forecasting",
+        "🔍 Data Comparison"
+    ])
+
     try:
-        # Render dashboard sections
-        render_metrics_row()
-        st.markdown("---")
+        # Tab 1: Overview (existing dashboard)
+        with tabs[0]:
+            render_metrics_row()
+            st.markdown("---")
+            render_disease_borough_charts()
+            render_details_charts()
 
-        render_disease_borough_charts()
-        render_details_charts()
+        # Tab 2: Spatial Clustering
+        with tabs[1]:
+            render_spatial_clustering_section()
 
-        st.markdown("---")
-        render_comparison_section()
+        # Tab 3: Anomaly Detection
+        with tabs[2]:
+            render_anomaly_detection_section()
+
+        # Tab 4: Outbreak Forecasting
+        with tabs[3]:
+            render_outbreak_forecasting_section()
+
+        # Tab 5: Data Comparison
+        with tabs[4]:
+            render_comparison_section()
 
     except psycopg2.OperationalError as e:
         st.error("❌ Cannot connect to TimescaleDB")
         st.info("Start database: `docker compose up -d timescaledb`")
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
+        st.exception(e)
 
     # Auto-refresh
     if auto_refresh:

@@ -324,7 +324,7 @@ class DiseaseOutbreakForecaster:
                                  .withColumn("rolling_std_7d", stddev("case_count").over(rolling_window))
         return df_featured
 
-    def forecast_all_neighborhoods(self, forecast_days=14, min_cases=10):
+    def forecast_all_neighborhoods(self, forecast_days=14, min_cases=3):
             """
             Generate forecasts for all neighborhoods (Driver-Side Loop Version)
             Stable on Windows.
@@ -471,10 +471,11 @@ if __name__ == "__main__":
 
     try:
         # Generate 14-day forecasts for all neighborhoods
+        # Lower threshold to min_cases=3 since we have sparse neighborhood-level data
         print("Generating disease outbreak forecasts...")
         forecasts = forecaster.forecast_all_neighborhoods(
             forecast_days=14,
-            min_cases=10
+            min_cases=3
         )
 
         # Generate comprehensive report
