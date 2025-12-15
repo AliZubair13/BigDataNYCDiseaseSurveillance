@@ -165,44 +165,65 @@ class LocationConsumer:
         Returns:
             Tuple of (neighborhood, borough) or None
         """
+        # Parse original_data if it exists (it's a JSON string)
+        original = record
+        if 'original_data' in record and isinstance(record['original_data'], str):
+            try:
+                original = json.loads(record['original_data'])
+            except:
+                original = record
+        
         # Check if record has location object (NYC 311 format)
-        if 'location' in record and isinstance(record['location'], dict):
-            lat = record['location'].get('lat')
-            lon = record['location'].get('lon')
-            zip_code = record['location'].get('zip')
+        if 'location' in original and isinstance(original['location'], dict):
+            lat = original['location'].get('lat')
+            lon = original['location'].get('lon')
+            zip_code = original['location'].get('zip')
 
             if lat and lon:
                 try:
                     neighborhood = get_neighborhood_from_coords(float(lat), float(lon))
                     borough = None
 
-                    # Try to get borough from zip first
+                    # Try to get borough from zip
                     if zip_code:
                         borough = get_borough_from_zip(zip_code)
 
-                    # If no neighborhood found, try zip
+                    # If no neighborhood found from coords, try zip as fallback
                     if not neighborhood and zip_code:
                         neighborhood = get_neighborhood_from_zip(zip_code)
 
                     return neighborhood, borough
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Error parsing coords: {e}")
+            
+            # If no coords but we have zip, try zip-only lookup
+            elif zip_code:
+                try:
+                    neighborhood = get_neighborhood_from_zip(zip_code)
+                    borough = get_borough_from_zip(zip_code)
+                    return neighborhood, borough
+                except Exception as e:
+                    logger.debug(f"Error with zip lookup: {e}")
 
-        # Check for top-level lat/lon fields
-        if 'lat' in record and 'lon' in record:
+        # Check for top-level lat/lon fields in original data
+        if 'lat' in original and 'lon' in original:
             try:
-                lat = float(record['lat'])
-                lon = float(record['lon'])
+                lat = float(original['lat'])
+                lon = float(original['lon'])
                 neighborhood = get_neighborhood_from_coords(lat, lon)
                 borough = None
 
-                if 'zip' in record or 'zipcode' in record:
-                    zip_code = record.get('zip') or record.get('zipcode')
+                if 'zip' in original or 'zipcode' in original:
+                    zip_code = original.get('zip') or original.get('zipcode')
                     borough = get_borough_from_zip(zip_code)
+                    
+                    # Fallback to zip for neighborhood if coords didn't work
+                    if not neighborhood and zip_code:
+                        neighborhood = get_neighborhood_from_zip(zip_code)
 
                 return neighborhood, borough
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                logger.debug(f"Error parsing top-level coords: {e}")
 
         return None, None
 
