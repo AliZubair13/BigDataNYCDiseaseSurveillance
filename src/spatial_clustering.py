@@ -455,7 +455,7 @@ class SpatialClusteringAnalyzer:
                     include=['embeddings']
                 )
 
-                if results and results.get('embeddings'):
+                if results is not None and 'embeddings' in results and len(results['embeddings']) > 0:
                     embeddings = np.array(results['embeddings'])
 
                     # Calculate pairwise cosine similarities

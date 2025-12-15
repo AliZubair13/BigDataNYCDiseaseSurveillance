@@ -4,8 +4,8 @@ Uses PySpark to process data from PostgreSQL and Prophet/statsmodels for forecas
 """
 import os
 import sys
-# Configure PySpark environment before any imports
-os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 --conf spark.driver.extraJavaOptions=-Djava.security.manager.allow=true --conf spark.executor.extraJavaOptions=-Djava.security.manager.allow=true pyspark-shell'
+# Configure PySpark environment before any imports - include PostgreSQL driver
+os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.postgresql:postgresql:42.7.1 --conf spark.driver.extraJavaOptions=-Djava.security.manager.allow=true --conf spark.executor.extraJavaOptions=-Djava.security.manager.allow=true pyspark-shell'
 os.environ['SPARK_LOCAL_IP'] = '127.0.0.1'
 if sys.version_info >= (3, 0):
     os.environ['PYSPARK_PYTHON'] = sys.executable
@@ -27,6 +27,10 @@ import numpy as np
 from datetime import datetime, timedelta
 import warnings
 import platform
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 warnings.filterwarnings('ignore')
 
@@ -392,7 +396,7 @@ class DiseaseOutbreakForecaster:
 
             return forecasts
 
-    def generate_outbreak_report(self, forecasts, output_file=r'forecast\outbreak_forecast.csv'):
+    def generate_outbreak_report(self, forecasts, output_file='data/forecast/outbreak_forecast.csv'):
         """Generate comprehensive outbreak forecast report (Preserved)"""
         report_data = []
 
@@ -452,15 +456,14 @@ class DiseaseOutbreakForecaster:
         self.spark.stop()
 
 
-# Example usage
 if __name__ == "__main__":
-    # Database configuration
+    # Database configuration from environment variables
     postgres_config = {
-        'host': 'localhost',
-        'port': '5432',
-        'database': 'disease_test_db',
-        'user': 'postgres',
-        'password': 'your_password'
+        'host': os.getenv('POSTGRES_HOST'),
+        'port': os.getenv('POSTGRES_PORT'),
+        'database': os.getenv('POSTGRES_DB'),
+        'user': os.getenv('POSTGRES_USER'),
+        'password': os.getenv('POSTGRES_PASSWORD')
     }
 
     # Initialize forecaster
