@@ -55,7 +55,8 @@ FORECAST_OUTPUT_SCHEMA = StructType([
 
 def forecast_prophet(neighborhood_data, forecast_days=14):
     """Standalone Prophet forecaster for Spark UDF"""
-    if len(neighborhood_data) < 14:
+    # Lower minimum from 14 to 7 days to capture more sparse data
+    if len(neighborhood_data) < 7:
         return None
 
     prophet_df = neighborhood_data[['date', 'case_count']].copy()
@@ -65,7 +66,7 @@ def forecast_prophet(neighborhood_data, forecast_days=14):
     model = Prophet(
         changepoint_prior_scale=0.05,
         seasonality_prior_scale=10,
-        daily_seasonality=True,
+        daily_seasonality=False,  # Disable daily for sparse data
         weekly_seasonality=True,
         yearly_seasonality=False
     )
@@ -324,10 +325,10 @@ class DiseaseOutbreakForecaster:
                                  .withColumn("rolling_std_7d", stddev("case_count").over(rolling_window))
         return df_featured
 
-    def forecast_all_neighborhoods(self, forecast_days=14, min_cases=3):
+    def forecast_all_neighborhoods(self, forecast_days=14, min_cases=2):
             """
             Generate forecasts for all neighborhoods (Driver-Side Loop Version)
-            Stable on Windows.
+            Stable on Windows. Lowered min_cases to 2 to capture sparse data.
             """
             # 1. Load Data using Spark (This is fast and fine)
             print("Loading data from database...")
@@ -471,11 +472,11 @@ if __name__ == "__main__":
 
     try:
         # Generate 14-day forecasts for all neighborhoods
-        # Lower threshold to min_cases=3 since we have sparse neighborhood-level data
+        # Lowered threshold to min_cases=2 to capture more sparse data patterns
         print("Generating disease outbreak forecasts...")
         forecasts = forecaster.forecast_all_neighborhoods(
             forecast_days=14,
-            min_cases=3
+            min_cases=2
         )
 
         # Generate comprehensive report

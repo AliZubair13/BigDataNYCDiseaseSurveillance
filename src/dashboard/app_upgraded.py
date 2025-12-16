@@ -73,16 +73,17 @@ def fetch_recent_events(hours=24):
         return 0
 
 @st.cache_data(ttl=30)
-def fetch_disease_distribution():
+def fetch_disease_distribution(hours=168):
     """Get disease type distribution"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
+        query = f"""
             SELECT
                 unnest(diseases) as disease,
                 COUNT(*) as count
             FROM disease_events
             WHERE diseases IS NOT NULL AND array_length(diseases, 1) > 0
+              AND timestamp >= NOW() - INTERVAL '{hours} hours'
             GROUP BY disease
             ORDER BY count DESC
             LIMIT 10;
@@ -94,16 +95,17 @@ def fetch_disease_distribution():
         return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def fetch_borough_distribution():
+def fetch_borough_distribution(hours=168):
     """Get events by borough"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
+        query = f"""
             SELECT
                 borough,
                 COUNT(*) as count
             FROM disease_events
             WHERE borough IS NOT NULL
+              AND timestamp >= NOW() - INTERVAL '{hours} hours'
             GROUP BY borough
             ORDER BY count DESC;
         """
@@ -114,15 +116,23 @@ def fetch_borough_distribution():
         return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def fetch_severity_distribution():
-    """Get events by severity level"""
+def fetch_severity_distribution(hours=168):
+    """Get events by severity level
+    
+    Severity levels determined by relevance_consumer.py keyword matching:
+    - severe: hospital, emergency, icu, critical, ambulance
+    - moderate: worse, worsening, bad
+    - mild: slight, minor, little
+    - unknown: no severity keywords found
+    """
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
+        query = f"""
             SELECT
                 severity,
                 COUNT(*) as count
             FROM disease_events
+            WHERE timestamp >= NOW() - INTERVAL '{hours} hours'
             GROUP BY severity
             ORDER BY
                 CASE severity
@@ -159,16 +169,17 @@ def fetch_time_series(hours=168):
         return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def fetch_top_symptoms():
+def fetch_top_symptoms(hours=168):
     """Get most common symptoms"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
+        query = f"""
             SELECT
                 unnest(symptoms) as symptom,
                 COUNT(*) as count
             FROM disease_events
             WHERE symptoms IS NOT NULL AND array_length(symptoms, 1) > 0
+              AND timestamp >= NOW() - INTERVAL '{hours} hours'
             GROUP BY symptom
             ORDER BY count DESC
             LIMIT 10;
@@ -180,15 +191,19 @@ def fetch_top_symptoms():
         return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def fetch_source_distribution():
+def fetch_source_distribution(hours=168):
     """Get events by data source"""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
+        query = f"""
             SELECT
-                source,
+                CASE
+                    WHEN source = 'unknown' THEN '⚠️ Unknown Source'
+                    ELSE source
+                END as source,
                 COUNT(*) as count
             FROM disease_events
+            WHERE timestamp >= NOW() - INTERVAL '{hours} hours'
             GROUP BY source
             ORDER BY count DESC;
         """
@@ -482,9 +497,17 @@ def standardize_official_columns(df):
     # Ensure required columns exist
     required_cols = ['date', 'disease', 'reported_cases']
     if not all(col in df.columns for col in required_cols):
-        missing = [col for col in required_cols if col not in df.columns]
-        st.warning(f"Missing required columns in official data: {missing}")
-        return None
+        # Try NYC 311 specific fallbacks
+        if 'Complaint Type' in df.columns:
+            df['disease'] = df['Complaint Type']
+        if 'Created Date' in df.columns:
+            df['date'] = df['Created Date']
+        if 'reported_cases' not in df.columns:
+            df['reported_cases'] = 1  # Each 311 complaint is one case
+        
+        # Final check
+        if not all(col in df.columns for col in required_cols):
+            return None
 
     # Convert data types
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -495,7 +518,10 @@ def standardize_official_columns(df):
 
     # Add borough if missing
     if 'borough' not in df.columns:
-        df['borough'] = 'Unknown'
+        if 'Borough' in df.columns:
+            df['borough'] = df['Borough']
+        else:
+            df['borough'] = 'Unknown'
 
     # Remove rows with invalid data
     df = df.dropna(subset=['date', 'disease', 'reported_cases'])
@@ -503,25 +529,50 @@ def standardize_official_columns(df):
     return df[['date', 'disease', 'reported_cases', 'borough']]
 
 @st.cache_data(ttl=30)
-def fetch_informal_disease_counts():
-    """Get aggregated disease counts from our surveillance system"""
+def fetch_informal_disease_counts(days_back=None):
+    """Get aggregated disease counts from our surveillance system
+    
+    Args:
+        days_back: Number of days to look back (None = all data)
+    """
     try:
         conn = psycopg2.connect(**DB_CONFIG)
-        query = """
-            SELECT
-                DATE(timestamp) as date,
-                unnest(diseases) as disease,
-                COUNT(*) as informal_cases
-            FROM disease_events
-            WHERE timestamp >= NOW() - INTERVAL '30 days'
-                AND diseases IS NOT NULL
-                AND array_length(diseases, 1) > 0
-            GROUP BY DATE(timestamp), disease
-            ORDER BY date, disease;
-        """
+        
+        # Build query with or without time filter
+        if days_back:
+            query = f"""
+                SELECT
+                    DATE(timestamp) as date,
+                    unnest(diseases) as disease,
+                    COUNT(*) as informal_cases
+                FROM disease_events
+                WHERE timestamp >= NOW() - INTERVAL '{days_back} days'
+                    AND diseases IS NOT NULL
+                    AND array_length(diseases, 1) > 0
+                GROUP BY DATE(timestamp), disease
+                ORDER BY date, disease;
+            """
+        else:
+            query = """
+                SELECT
+                    DATE(timestamp) as date,
+                    unnest(diseases) as disease,
+                    COUNT(*) as informal_cases
+                FROM disease_events
+                WHERE diseases IS NOT NULL
+                    AND array_length(diseases, 1) > 0
+                GROUP BY DATE(timestamp), disease
+                ORDER BY date, disease;
+            """
+        
         df = pd.read_sql(query, conn)
         conn.close()
         df['date'] = pd.to_datetime(df['date'])
+        
+        # Normalize disease names to lowercase for comparison with official data
+        if 'disease' in df.columns:
+            df['disease'] = df['disease'].str.lower().str.strip()
+        
         return df
     except Exception as e:
         return pd.DataFrame()
@@ -534,10 +585,20 @@ def compare_official_vs_informal(official_df, informal_df):
     if official_df is None or official_df.empty or informal_df.empty:
         return None, None
 
+    # Ensure date columns are date-only (no time component)
+    official_df = official_df.copy()
+    informal_df = informal_df.copy()
+    official_df['date'] = pd.to_datetime(official_df['date']).dt.date
+    informal_df['date'] = pd.to_datetime(informal_df['date']).dt.date
+    
+    # Aggregate by date and disease (consolidate multiple timestamps per day)
+    official_agg = official_df.groupby(['date', 'disease'], as_index=False)['reported_cases'].sum()
+    informal_agg = informal_df.groupby(['date', 'disease'], as_index=False)['informal_cases'].sum()
+
     # Merge datasets
     merged = pd.merge(
-        official_df[['date', 'disease', 'reported_cases']],
-        informal_df[['date', 'disease', 'informal_cases']],
+        official_agg,
+        informal_agg,
         on=['date', 'disease'],
         how='outer'
     ).fillna(0)
@@ -666,7 +727,7 @@ def generate_risk_assessment():
     """Generate comprehensive risk assessment for all areas"""
     try:
         forecast_df = load_latest_forecast()
-        informal_df = fetch_informal_disease_counts()
+        informal_df = fetch_informal_disease_counts(days_back=None)
 
         if forecast_df is None or informal_df.empty:
             return None
@@ -734,13 +795,13 @@ def render_metrics_row():
         avg_per_hour = recent_24h / 24 if recent_24h > 0 else 0
         st.metric("Avg/Hour (24h)", f"{avg_per_hour:.1f}")
 
-def render_disease_borough_charts():
+def render_disease_borough_charts(time_window=168):
     """Render disease and borough distribution charts"""
     col1, col2 = st.columns(2)
 
     with col1:
         st.subheader("🦠 Top Diseases")
-        disease_df = fetch_disease_distribution()
+        disease_df = fetch_disease_distribution(time_window)
         if not disease_df.empty:
             fig = px.bar(
                 disease_df, x='count', y='disease', orientation='h',
@@ -753,7 +814,7 @@ def render_disease_borough_charts():
 
     with col2:
         st.subheader("📍 Events by Borough")
-        borough_df = fetch_borough_distribution()
+        borough_df = fetch_borough_distribution(time_window)
         if not borough_df.empty:
             fig = px.pie(
                 borough_df, values='count', names='borough',
@@ -764,13 +825,13 @@ def render_disease_borough_charts():
         else:
             st.info("No borough data available")
 
-def render_details_charts():
+def render_details_charts(time_window=168):
     """Render symptoms, severity, and source charts"""
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.subheader("🤒 Top Symptoms")
-        symptom_df = fetch_top_symptoms()
+        symptom_df = fetch_top_symptoms(time_window)
         if not symptom_df.empty:
             fig = px.bar(
                 symptom_df, x='count', y='symptom', orientation='h',
@@ -783,7 +844,7 @@ def render_details_charts():
 
     with col2:
         st.subheader("⚠️ Severity Levels")
-        severity_df = fetch_severity_distribution()
+        severity_df = fetch_severity_distribution(time_window)
         if not severity_df.empty:
             color_map = {
                 'severe': '#d62728', 'moderate': '#ff7f0e',
@@ -800,7 +861,7 @@ def render_details_charts():
 
     with col3:
         st.subheader("📊 Data Sources")
-        source_df = fetch_source_distribution()
+        source_df = fetch_source_distribution(time_window)
         if not source_df.empty:
             fig = px.bar(
                 source_df, x='count', y='source', orientation='h',
@@ -821,7 +882,7 @@ def render_comparison_section():
         st.subheader("📈 Data Source Comparison")
 
         official_df = load_official_health_data()
-        informal_df = fetch_informal_disease_counts()
+        informal_df = fetch_informal_disease_counts(days_back=None)
 
         if official_df is not None and not informal_df.empty:
             merged_df, metrics = compare_official_vs_informal(official_df, informal_df)
@@ -1135,8 +1196,20 @@ def render_outbreak_forecasting_section():
 
     forecast_df = load_latest_forecast()
 
-    if forecast_df is None:
-        st.info("No forecast data available. Run: `python src/disease_outbreak_forecaster.py`")
+    if forecast_df is None or len(forecast_df) == 0:
+        st.warning("⚠️ Forecast CSV is empty. This may be due to:")
+        st.markdown("""
+        - **Insufficient data**: Prophet requires at least 14 days of historical data per neighborhood/disease
+        - **Sparse data**: `min_cases=3` threshold not met for most combinations
+        - **Recent analysis**: No outbreak patterns detected yet
+        
+        **To generate forecasts:**
+        ```bash
+        python src/disease_outbreak_forecaster.py
+        ```
+        
+        The forecaster will only predict for neighborhood/disease pairs with sufficient historical data.
+        """)
         return
 
     summary = get_forecast_summary(forecast_df)
@@ -1284,8 +1357,8 @@ def main():
         with tabs[0]:
             render_metrics_row()
             st.markdown("---")
-            render_disease_borough_charts()
-            render_details_charts()
+            render_disease_borough_charts(time_window)
+            render_details_charts(time_window)
 
         # Tab 2: Spatial Clustering
         with tabs[1]:

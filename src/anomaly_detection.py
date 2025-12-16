@@ -55,19 +55,21 @@ else:
   # Fill NaN z-scores (first occurrence) with 0
   df["z_score"] = df["z_score"].fillna(0)
   
-  # Filter anomalies: z-score > 2 OR percentage change > 200% when std=0
-  anomalies = df[(df["mean"].notna()) & (df["z_score"] > 1.5)]
-  
+  # Save ALL records (not just anomalies) so dashboard can show proper percentage
   print(f"\nSample of processed data:")
   print(df[['day', 'borough', 'disease', 'cnt', 'mean', 'std', 'z_score']].head(15))
   
-  print(f"\nAnomalies found: {anomalies.shape[0]}")
+  # Count anomalies for logging (z-score > 1.5)
+  anomalies = df[(df["mean"].notna()) & (df["z_score"] > 1.5)]
+  print(f"\nAnomalies found: {anomalies.shape[0]} out of {len(df)} records ({anomalies.shape[0]/len(df)*100:.1f}%)")
+  
   try:
-    anomalies.to_csv(OUTPUT_PATH, index=False)
-    print(f"Wrote: {OUTPUT_PATH}")
+    df.to_csv(OUTPUT_PATH, index=False)
+    print(f"Wrote all records to: {OUTPUT_PATH}")
   except Exception as e:
     print(f"Exception writing anomalies.csv: {e}")
-  print("Anomalies detected:")
+  
+  print("\nTop anomalies detected:")
   print(anomalies[['day', 'borough', 'disease', 'cnt', 'mean', 'std', 'z_score']].head(20))
 
   print(df.sample(10))
